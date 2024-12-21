@@ -1,0 +1,33 @@
+python-docx==0.8.11
+pytesseract==0.3.10
+Pillow
+#==9.6.1
+pdfplumber==0.9.0
+python-pptx==0.6.21
+docx2txt
+pdf2image
+# == 1.16.3
+python-dotenv
+python-environ
+
+#faiss-cpu
+faiss-gpu
+gradio
+sentence_transformers
+transformers
+langchain
+pydantic
+# Confluence
+atlassian-python-api
+lxml
+#markdownify
+requests
+bs4
+#olefile
+accelerate>=0.26.0
+nltk
+# sudo dnf install epel-release -y
+# sudo dnf install tesseract -y
+# sudo dnf install poppler-utils -y
+# This installs the necessary Poppler utilities, including pdftoppm and pdftocairo, which are required by pdf2image.
+# pdftoppm -v

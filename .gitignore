@@ -1,0 +1,8 @@
+venv
+OnyxData
+Offload
+onyxFEspacedata.tar.gz
+.env
+__pycache__
+*.bin
+*.pkl
