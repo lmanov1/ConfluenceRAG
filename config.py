@@ -13,3 +13,6 @@ CONFLUENCE_SPACE_NAME = os.environ['CONFLUENCE_SPACE_NAME']  # Change to your sp
 CONFLUENCE_SPACE_KEY = os.environ['CONFLUENCE_SPACE_KEY_FG']
 CONFLUENCE_API_TOKEN = os.environ['CONFLUENCE_PRIVATE_API_TOKEN']
 CONFLUENCE_SPACE_URL = os.environ['CONFLUENCE_SPACE_URL']
+
+
+embeds_file_path = os.path.join('./', 'embeddings.csv')

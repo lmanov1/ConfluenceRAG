@@ -5,50 +5,110 @@ import logging
 import pickle
 from  confluence_reader import get_and_save_space
 from config import (CONFLUENCE_SPACE_NAME, CONFLUENCE_SPACE_KEY)
-
+from config import embeds_file_path
 import faiss
 import gradio as gr
-#from sentence_transformers import SentenceTransformer
-from transformers import BertTokenizer, BertModel
-from transformers import pipeline, AutoModelForCausalLM
-#from transformers import  AutoTokenizer
+from sentence_transformers import SentenceTransformer , models
+from transformers import  AutoModelForCausalLM
+from transformers import  AutoTokenizer
 import numpy as np
-from injest import  load_embed_text_from_directory , run_embedding_pipeline
-import torch
+import pandas as pd
+from injest import  load_embed_text_from_directory , run_embedding_pipeline , print_cuda_memory
+from tqdm import tqdm
+# Retrieve the context window size (max tokens)
+def get_context_window_size(tokenizer, model):
+    return model.config.max_position_embeddings if hasattr(model.config, "max_position_embeddings") else 2048
 
-def print_cuda_memory(device):            
-    stats = torch.cuda.memory_stats(device=device)
-    for key, value in stats.items():
-        print(f"{key}: {value}")
+# Function to calculate token length using 
+def estimate_tokens(text , tokenizer):
+    return len(tokenizer.encode(text))
+
+# Function to find the most similar chunks and return a combined context
+def find_similar_chunks(query, embeddings_df, max_tokens , model):
+    """
+    Finds and retrieves semantically similar text chunks for a given query using embedding similarity.
+    This function embeds the query text, computes similarity scores with existing document chunks,
+    and returns the most relevant chunks while respecting a maximum token limit.
+    Args:
+        query (str): The input query text to find similar chunks for
+        embeddings_df (pd.DataFrame): DataFrame containing text chunks and their embeddings
+        max_tokens (int): Maximum number of tokens allowed in the combined output
+        model: The language model to use for embeddings
+    Returns:
+        str: Combined context string containing the query and most similar text chunks
+    The function:
+    1. Embeds the query text
+    2. Computes cosine similarity between query and existing chunk embeddings 
+    3. Sorts chunks by similarity score
+    4. Selects top chunks while staying within token limit
+    5. Returns formatted context string with query and selected chunks
+    """
+    query_embeddings_df = run_embedding_pipeline(query, embedding_model, tokenizer, 
+                                              chunk_size=500, overlap=50)
     
-    if torch.cuda.is_available():
-        # Return the global free and total GPU memory for a given device
-        free, total = torch.cuda.mem_get_info()
-        free_gb = free / (1024 ** 3)
-        total_gb = total / (1024 ** 3)
-        print(f"Free CUDA memory: {free_gb:.2f} GB")
-        print(f"Total CUDA memory: {total_gb:.2f} GB")
+    if query_embeddings_df is None:
+        print(f"No embeddings generated for the query text: {query}")
+        return ""
+    else:        
+       # Convert 'embedding' column from Series to NumPy array in-place
+        query_embeddings_df['embedding'] = query_embeddings_df['embedding'].apply(lambda x: x.to_numpy())
+        # print("\nFirst row of query_embedding_df:")
+        # print(query_embeddings_df.iloc[0]) 
+        # print(query_embeddings_df.info())
+        # print(query_embeddings_df.describe())               
 
+        # print("\nFirst row of embeddings_df:")
+        # print(embeddings_df.iloc[0]) 
+        # print(embeddings_df.info())
+        # print(embeddings_df.describe()) 
 
-# Step 2: Generate embeddings and create FAISS index with preprocessed texts (chunks)
-def build_faiss_index(embeddings):    
-    # Ensure embeddings are on CPU and convert to numpy
-    embeddings_cpu = [emb.cpu().numpy() for emb in embeddings]  # Convert each tensor to numpy (if on GPU)    
-    # Convert the list of numpy arrays into a single numpy 2D array
-    chunk_embeddings_np = np.vstack(embeddings_cpu)  # Stack them along the first axis (n_samples, n_features)    
-    # Ensure the dimensions are correct
-    dimension = chunk_embeddings_np.shape[1]  # Number of features (embedding dimension)    
-    # Initialize FAISS index
-    index = faiss.IndexFlatL2(dimension)    
-    # Add embeddings to the FAISS index
-    index.add(chunk_embeddings_np)    
-    # Save the FAISS index to disk
-    faiss.write_index(index, "faiss_index.bin")    
-    return index
+        print(f"\n0.    Shape of query embeddings: {query_embeddings_df['embedding'].shape}\ntype of query embeddings: {type(query_embeddings_df['embedding'])}\nlen of query embeddings: {len(query_embeddings_df['embedding'])}")
+        # print(f"Shape of embeddings_df: {embeddings_df.shape} type of embeddings_df: {type(embeddings_df)}")
+               
+        # Compute similarity scores using numpy
+        similarities = []
+        query_embeddings_df['embedding'] = query_embeddings_df['embedding'].apply(lambda x: x if isinstance(x, np.ndarray) else np.array(x))
+        for _, chunk_emb in embeddings_df.iterrows():                
+            print(f"\n1.    Chunk embedding len {len(chunk_emb['embedding'])}\nembedding type {type(chunk_emb['embedding'])}")
+            print(f"\n2.    Query embedding embedding len {len(query_embeddings_df['embedding'])}\nquery embedding type: {type(query_embeddings_df['embedding'])}") 
+            
+            print(f"\n3.    Shape of query_embeddings_df: {query_embeddings_df['embedding'].shape} type of query_embeddings_df: {type(query_embeddings_df['embedding'])}")
+            print(f'\n4.    Shape of chunk_emb: {chunk_emb["embedding"].shape} type of embeddings_df: {type(chunk_emb["embedding"])}')
+            similarities.append(
+                np.dot(query_embeddings_df["embedding"], chunk_emb["embedding"]) / (np.linalg.norm(query_embeddings_df["embedding"]) * np.linalg.norm(chunk_emb["embedding"]))
+                )
+             
+    
+    # Add similarity scores to DataFrame
+    embeddings_df["similarity"] = similarities
+    
+    # Sort by similarity in descending order
+    sorted_df = embeddings_df.sort_values(by="similarity", ascending=False)
+    
+    # Select the top chunks while staying within the token limit
+    top_chunks = []
+    token_count = estimate_tokens(query)  # Start with query token length
+    for _, row in sorted_df.iterrows():
+        chunk_tokens = estimate_tokens(row["text_chunk"])
+        if token_count + chunk_tokens <= max_tokens:
+            top_chunks.append(row["text_chunk"])
+            token_count += chunk_tokens
+        if len(top_chunks) >= 3:  # Limit to top 3 chunks
+            break
+    
+    # Combine query and selected chunks
+    combined_context = f"Query: {query}\n\n" + "\n".join(
+        [f"- {chunk}" for chunk in top_chunks]
+    )
+    
+    # Display the result
+    print("Generated Context:")
+    print(f" {combined_context}\n")
+    return combined_context
 
 
 # SEarch for relevant data chunks and generate LLM answer with relevant context
-def process_query(query, embedding_model, tokenizer, model, index):    
+def process_query(query, embedding_model, tokenizer, model, embeddings_df ):    
     """
     Process the input query by embedding it using the provided model and searching 
     for the most similar chunk in the FAISS index.
@@ -56,77 +116,29 @@ def process_query(query, embedding_model, tokenizer, model, index):
     - query: The query string.
     - tokenizer: The tokenizer to use for encoding the query.
     - model: The model to use for generating embeddings.
-    - index: The FAISS index containing precomputed chunk embeddings
+    - embeddings_df - dataframe with embeddings and text chunks
 
     Returns:
-    - The most relevant chunk(s) of text from the document.
-    """
-    query_embeddings = run_embedding_pipeline(query, embedding_model, tokenizer, chunk_size=128, overlap=20)
-    # Ensure embeddings are on CPU and convert to numpy
-    query_embeddings_cpu = [emb.cpu().numpy() for emb in query_embeddings]  # Convert each tensor to numpy (if on GPU)    
-    # Convert the list of numpy arrays into a single numpy 2D array
-    chunk_embeddings_np = np.vstack(query_embeddings_cpu)  # Stack them along the first axis (n_samples, n_features)    
-    D, I = index.search(chunk_embeddings_np, k=3)  # Search for the top-k (3) most similar chunks
-    # Print the distances and indices
-    print("Distances (D):", D)
-    print("Indices (I):", I)
-    print(f"type of chunk_embeddings_np: {type(chunk_embeddings_np)})")
-    print(f"chunk_embeddings_np: {chunk_embeddings_np}")
-    # Print information about query embeddings
+    - combined_context: query plus the most relevant chunk(s) of text from the document.
+    """    
     
-    # print(f"Length of query_embeddings: {len(query_embeddings)}")
-    print(f"Type of query_embeddings: {type(query_embeddings)}")
-    print(f"query_embeddings: {query_embeddings}")
+    # Define the max tokens budget
+    #max_tokens_budget = 100  # Example token limit TBD model context window size 
+    max_tokens_budget = get_context_window_size(tokenizer, model)
+    print(f"Model's max token budget: {max_tokens_budget}")   
 
-    tensor_emb = query_embeddings[0]  # Get the first (and only) tensor in the list
-    tensor_emb_cpu = tensor_emb.cpu()
-    print(f"Length of tensor_emb_cpu: {len(tensor_emb_cpu)}")
-    print(f"Type of tensor_emb_cpu: {type(tensor_emb_cpu)}")
-    print(f"Shape of tensor_emb: {tensor_emb.shape}")
-    print(f"Shape of tensor_emb_cpu: {tensor_emb_cpu.shape}")
-    idx0 = I[0]
-    for idx in idx0:
-        print(f" : Value at index {idx}:")
-        value_at_index_0 = tensor_emb_cpu[0,idx ].item()
-        print(f"Value at index {idx}: {value_at_index_0}")
-        
-    # Print the actual chunks for each match
-    decoded_chunks = []
-    for i, indices in enumerate(I):
-        print(f"\nQuery {i} matches:")
-        for idx, chunk_idx in enumerate(indices):
-            print(f"Match {idx} (distance: {D[i][idx]:.4f}):")
-            print(f"Match {idx} (index: {I[i][idx]} {chunk_idx}):")
-            print(f"query_embeddings at index {chunk_idx}: {tensor_emb_cpu[0,chunk_idx].item()}")           
-            chunk_text = tensor_emb_cpu[0,chunk_idx].item()
-            print(f"Chunk text: {chunk_text}")
-            decoded_chunks.append(chunk_text)
-            
+    # Find the top 3 most similar chunks and construct context
+    context = find_similar_chunks(query, embeddings_df, max_tokens_budget , model)
 
-    # Step 5: Get the most similar chunks as context
-    #context = [query_embeddings[i.item()] for i in I[0]]  # Get the chunks corresponding to the top-k (3) results
-    print(f"Most similar chunks: {decoded_chunks}")
-    # Step 6: Concatenate the context chunks into one string (assuming the chunks are small enough)
-    context_text = " ".join([tokenizer.decode(chunk) for chunk in decoded_chunks])
-    # Step 7: Generate the answer using the query and the concatenated context
-    input_text = f"Context: {context_text}\n\nQuestion: {query}\n\nAnswer:"    
-    # Tokenize the input text (query + context) and ensure it fits within the model's token limit
-    input_ids = tokenizer.encode(input_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-
-    if torch.cuda.is_available():
-        input_ids = input_ids.to('cuda')
-
-    # Generate the answer from the model
-    output = model.generate(input_ids, 
-                            max_new_tokens=250, 
-                            num_beams=5, 
-                            no_repeat_ngram_size=2, 
-                            early_stopping=True)
-
+    # Pass the context to the generative model to generate an answer
+    print("Generating answer...")
+    input_ids = tokenizer(context, return_tensors="pt", truncation=True).input_ids
+    output_ids = model.generate(input_ids, max_length=max_tokens_budget, num_return_sequences=1)
     # Decode the generated answer
-    answer = tokenizer.decode(output[0], skip_special_tokens=True)
+    generated_answer = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    
     # Extract the answer after the "Answer:" part
-    generated_answer = answer.split("Answer:")[-1].strip()
+    generated_answer = generated_answer.split("Answer:")[-1].strip()
     return generated_answer
     
 # #############################################################################
@@ -136,25 +148,24 @@ if __name__ == '__main__':
     sys.path.append('../')
     load_dotenv(find_dotenv())
         
-    print_cuda_memory("cuda")
-    device = "cuda" if torch.cuda.is_available() else "cpu" 
-    #tokenizer = AutoTokenizer.from_pretrained(qa_model_name , device_map=device )
-    #Load the embedding model and LLM
-    #embedding_model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
+    #print_cuda_memory("cuda")
+    #device = "cuda" if torch.cuda.is_available() else "cpu" 
+    device = "auto"
+       
     #qa_model_name = "tiiuae/falcon-7b-instruct"  # too heavy to load in memory without offload to disk
-    qa_model_name = "ibm-granite/granite-3.0-2b-instruct"  
+    #qa_model_name = "ibm-granite/granite-3.0-2b-instruct"  
     #"openlm-research/open_llama_3b" - to try next    
-    
-    
-    # Initialize BERT tokenizer and model
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased' ,  device_map=device)
-    #This embedding model takes integer token IDs directly as input.
-    embedding_model = BertModel.from_pretrained('bert-base-uncased',  device_map=device)  
 
-    # Set the pad_token to be the same as the eos_token
-    tokenizer.pad_token = tokenizer.eos_token
-    # OR Add a custom pad token
-    # tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    #Load the embedding model and LLM
+    #embedding_model_name= 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
+    embedding_model_name= 'sentence-transformers/all-MiniLM-L6-v2'
+    embedding_model = SentenceTransformer(embedding_model_name)     
+    print(f"Loaded embedding model: {embedding_model}")
+    #print(f"Embedding model name: {embedding_model_name}")
+    
+    #qa_model_name = "meta-llama/Llama-3.2-3B"  # LLM model
+    qa_model_name = "ibm-granite/granite-3.1-2b-instruct"
+    tokenizer = AutoTokenizer.from_pretrained(qa_model_name , device_map=device)
 
     qa_model = AutoModelForCausalLM.from_pretrained(qa_model_name, 
     #low_cpu_mem_usage=True,
@@ -163,7 +174,13 @@ if __name__ == '__main__':
     #offload_state_dict=True,
     #torch_dtype=torch.float16,
     )
-    # load_in_8bit=True
+    print(f"Loaded LLM model: {qa_model_name}")
+    qa_model.eval()
+
+    # Set the pad_token to be the same as the eos_token
+    tokenizer.pad_token = tokenizer.eos_token
+    # OR Add a custom pad token
+    # tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     
     # ==> Open From here ==============================
     # spaces  = {CONFLUENCE_SPACE_KEY: CONFLUENCE_SPACE_NAME}
@@ -191,18 +208,45 @@ if __name__ == '__main__':
     #                 pickle.dump(chunks, f)
 
     #         print(f" {len(space_chunks)} text chunks successfully saved to {pickle_file_path}.")
-    # ==> To here ==============================
-    embeddings = load_embed_text_from_directory("./OnyxData/FE_Group" , tokenizer , embedding_model)
-    print(f"=============Embeddings len after preprocessing: {len(embeddings)} , embeddings type: {type(embeddings)}")
+    # ==> To here ==============================    
+    if os.path.exists(embeds_file_path):
+        embeddings_df = pd.read_csv(embeds_file_path)        
+        # Convert string representation of list back to numpy array AND print first row
+        # print("\nFirst row of embeddings_df before conversion:")
+        # print(embeddings_df.iloc[0])        
+        # print(embeddings_df.info())
+        # print(embeddings_df.describe())
+
+        # embeddings0 = embeddings_df['embedding'].iloc[0]
+        # print(f"\n\nEmbedding0: {embeddings0}\n\n") 
+
+        #embeddings_df['embedding'] = embeddings_df['embedding'].apply(lambda x:  np.fromstring(x, sep=' '))
+        embeddings_df['embedding'] = embeddings_df['embedding'].apply(lambda x: np.fromstring(x.strip('[]'), sep=' '))
+        # print("\nFirst row of embeddings_df after conversion:")
+        # print(embeddings_df.iloc[0]) 
+        # print(embeddings_df.info())
+        # print(embeddings_df.describe())
+    else:
+        embeddings_df = load_embed_text_from_directory("./OnyxData/FE_Group", tokenizer, embedding_model)
+        # Save to CSV file
+        # Remove output file if it exists
+        output_path = embeds_file_path
+        # if os.path.exists(output_path):
+        #     os.remove(output_path)   
+        print(f"Saving {len(embeddings_df)} embeddings to {output_path}...")
+        # Save with progress bar
+        tqdm.pandas()
+        embeddings_df.to_csv(output_path, index=False, chunksize=1000)
+        print(f"Embeddings saved to {embeddings_df}")
+            
+    print(f"=============Embeddings len after preprocessing: {embeddings_df.shape} , embeddings type: {(embeddings_df.info())}")
     # for i, embedding in enumerate(embeddings):
     #     if i % 20 == 0:
     #         print(f"Chunk {i}: {embedding}")   
-
-    
-    index = build_faiss_index(embeddings)
+   
     # Step 5: Integrate with Gradio chatbot
     def chatbot(query):      
-        answer = process_query(query, embedding_model , tokenizer, qa_model, index)
+        answer = process_query(query, embedding_model , tokenizer, qa_model, embeddings_df)
         return answer
 
     # Gradio UI

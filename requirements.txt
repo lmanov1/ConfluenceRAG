@@ -10,7 +10,7 @@ pdf2image
 python-dotenv
 python-environ
 
-#faiss-cpu
+faiss-cpu
 faiss-gpu
 gradio
 sentence_transformers
@@ -26,6 +26,8 @@ bs4
 #olefile
 accelerate>=0.26.0
 nltk
+pandas
+tqdm
 # sudo dnf install epel-release -y
 # sudo dnf install tesseract -y
 # sudo dnf install poppler-utils -y

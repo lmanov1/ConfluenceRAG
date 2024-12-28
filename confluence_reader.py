@@ -204,4 +204,16 @@ def get_and_save_space(space_key , space_name , tokenizer):
 
 
 
+# Function to fetch page content by title
+def get_page_content(title):
+    page = confluence_client.get_page_by_title(space='your-space-key', title=title)
+    if page:
+        page_id = page['id']
+        content = confluence_client.get_page_by_id(page_id, expand='body.storage')
+        return content['body']['storage']['value']
+    else:
+        raise ValueError(f"Page with title '{title}' not found.")
+
+
+
 
