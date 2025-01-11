@@ -66,10 +66,11 @@ def find_similar_chunks(query, embeddings_df, max_tokens , model):
                 )        
 
     # Add similarity scores to DataFrame
-    embeddings_df["similarity"] = similarities
+    embeddings_df_with_similarity = embeddings_df.copy()
+    embeddings_df_with_similarity["similarity"] = similarities
 
     # Sort by similarity in descending order
-    sorted_df = embeddings_df.sort_values(by="similarity", ascending=False)
+    sorted_df = embeddings_df_with_similarity.sort_values(by="similarity", ascending=False)
 
     # Select the top chunks while staying within the token limit
     top_chunks = []
@@ -83,14 +84,19 @@ def find_similar_chunks(query, embeddings_df, max_tokens , model):
         if len(top_chunks) >= 3:  # Limit to top 3 chunks
             break
 
-    # Combine query and selected chunks
-    combined_context = f"Query: {query}\n\n" + "Most similar data:\n" "\n".join(
-        [f" {chunk}" for chunk in top_chunks]
-    )
+    # Print selected chunks for debugging
+    print("\n=============================\n")
+    print("\"Most similar chunks:")
+    for i, chunk in enumerate(top_chunks, 1):
+        print(f"\nChunk {i}:")
+        print(chunk)
+    print("=============================\n\n")
 
-    # Display the result
-    print("=============================\nGenerated Context:")
-    print(f"\"{combined_context}\"\n=============================")
+    # Combine query and selected chunks
+    combined_context = f"Query: {query}\n\n" + "Most similar data found" + "\n".join(
+        [f" {chunk}" for chunk in top_chunks]
+    ) + "Answer:"
+    
     return combined_context
 
 
@@ -104,28 +110,22 @@ def process_query(query, embedding_model, tokenizer, model, embeddings_df ):
     - tokenizer: The tokenizer to use for encoding the query.
     - model: The model to use for generating embeddings.
     - embeddings_df - dataframe with embeddings and text chunks
-
     Returns:
     - combined_context: query plus the most relevant chunk(s) of text from the document.
     """
-
-    # Define the max tokens budget
-    #max_tokens_budget = 100  # Example token limit TBD model context window size
+    # Define the max tokens budget    
     max_tokens_budget = get_context_window_size(tokenizer, model)
     print(f"Model's max token budget: {max_tokens_budget}")
 
     # Find the top 3 most similar chunks and construct context
     context = find_similar_chunks(query, embeddings_df, max_tokens_budget , model)
 
-    # Pass the context to the generative model to generate an answer            
-    #print(f"Tokenizing {context}...")
+    # Pass the context to the generative model to generate an answer                
     inputs =  tokenizer(context, return_tensors="pt", truncation=True, padding=True)
-    #print(f"Getting attention mask for {context}...")
-    attention_mask = inputs["attention_mask"]
-    #print(f"Attention mask is {attention_mask}...")
+    #inputs =  tokenizer(query, return_tensors="pt", truncation=True, padding=True)    
+    attention_mask = inputs["attention_mask"]    
    
-    input_ids = inputs.input_ids
-    #print(f"input_ids mask is {input_ids}...")
+    input_ids = inputs.input_ids    
     # Generate an answer using the model
     # If both `max_new_tokens` (=70) and `max_length`(=131072) is set, `max_new_tokens` will take precedence    
     start_time = time.time()
@@ -133,17 +133,16 @@ def process_query(query, embedding_model, tokenizer, model, embeddings_df ):
     output_ids = model.generate(input_ids.to(model.device), 
         num_return_sequences=1, 
         attention_mask=attention_mask, 
+        #max_length = max_tokens_budget,
         max_new_tokens=150,        
         num_beams=3,          
         early_stopping=True)   
     end_time = time.time()
     elapsed_time = end_time - start_time
     print(f"Generation completed in {elapsed_time:.2f} seconds")
-
-    #print("Decoding answer output_ids..{output_ids}")
+    
     # Decode the generated answer
     generated_answer = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    print(f"Generated answer: {generated_answer}")
     # Extract the answer after the "Answer:" part
     generated_answer = generated_answer.split("Answer:")[-1].strip()
     return generated_answer
@@ -157,8 +156,7 @@ if __name__ == '__main__':
 
     print_cuda_memory("cuda")
     #device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    #device = "auto"
-    device = "cpu"
+    device = "auto"
 
     #qa_model_name = "tiiuae/falcon-7b-instruct"  # too heavy to load in memory without offload to disk
     #qa_model_name = "ibm-granite/granite-3.0-2b-instruct"
@@ -216,20 +214,14 @@ if __name__ == '__main__':
     # ==> To here ==============================
     if os.path.exists(embeds_file_path):
         embeddings_df = pd.read_csv(embeds_file_path)
-        embeddings_df['embedding'] = embeddings_df['embedding'].apply(lambda x: np.fromstring(x.strip('[]'), sep=' '))
-        # print("\nFirst row of embeddings_df after conversion:")
-        # print(embeddings_df.iloc[0])
-        # print(embeddings_df.info())
-        # print(embeddings_df.describe())
+        embeddings_df['embedding'] = embeddings_df['embedding'].apply(lambda x: np.fromstring(x.strip('[]'), sep=' '))        
     else:
         # Load text chunks from directory
         print("Going to embed text from ./wireshark_dissectors_tutorial...")
         embeddings_df = load_embed_text_from_directory("./wireshark_dissectors_tutorial", tokenizer, embedding_model)
 
         # print("Going to embed text from ./OnyxData/FE_Grouprelevant directory...")
-        # embeddings_df = load_embed_text_from_directory("./OnyxData/FE_Group", tokenizer, embedding_model)
-
-        
+        # embeddings_df = load_embed_text_from_directory("./OnyxData/FE_Group", tokenizer, embedding_model)        
         # Save to CSV file
         # Remove output file if it exists
         output_path = embeds_file_path
@@ -243,22 +235,25 @@ if __name__ == '__main__':
             print(f"Embeddings saved to {embeddings_df}")
 
     print(f"=============Embeddings len after preprocessing: {embeddings_df.shape} , embeddings type: {(embeddings_df.info())}")
-    # for i, embedding in enumerate(embeddings):
-    #     if i % 20 == 0:
-    #         print(f"Chunk {i}: {embedding}")
 
     # Step 5: Integrate with Gradio chatbot
     def chatbot(query):
         answer = process_query(query, embedding_model , tokenizer, qa_model, embeddings_df)
         return answer
 
+    # user_query = "What is the purpose of the Wireshark Dissectors Tutorial?"
+    # print(f"User query: {user_query}")
+    # answer = chatbot(user_query)
+    # print(f"\n\n{answer}\n\n")
+
     # Gradio UI
+    #http://127.0.0.1:7860/
     interface = gr.Interface(
         fn=chatbot,
         inputs="text",
         outputs="text",
-        title="Confluence assistant",
-        description="Ask questions about the content of the locally available Confluence spaces"
+        title="Doc assistant",
+        description="Ask questions about the content of the locally available documents"
     )
 
     # Run the chatbot

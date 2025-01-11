@@ -17,15 +17,15 @@ nltk.download("wordnet")
 nltk.download('punkt')
 from config import embeds_file_path
 def load_embed_text_from_directory(directory_path , tokenizer , embedding_model, chunk_size=500, overlap=50):
-    print(f"!!!!!!!!!!!!!!!!! herfe in load_embed_text_from_directory {directory_path}!!!!")
+    #print(f"!!!!!!!!!!!!!!!!! here in load_embed_text_from_directory {directory_path}!!!!")
     # Initialize an empty DataFrame
     dir_embeddings = pd.DataFrame(columns=['text_chunk', 'embedding'])
     for filename in os.listdir(directory_path):
-        print(f"Processing file: {filename}")
+        #print(f"Processing file: {filename}")
         #if filename.endswith(".txt"):  # Adjust for other formats
         with open(os.path.join(directory_path, filename), 'r', encoding='utf-8') as file:
             text = str(file.read())
-            print(f"---------Processing file: {filename}, {text} -------------------")
+            #print(f"---------Processing file: {filename}, {text} -------------------")
             embeddings = run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size, overlap)
             if embeddings is not None:
                 dir_embeddings = pd.concat([dir_embeddings, embeddings], ignore_index=True)
@@ -49,7 +49,8 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
         chunk_size=chunk_size,
         overlap=overlap
     )
-    print(f"run_embedding_pipeline_on_file: Total chunks: {len(chunks)} type: {type(chunks)}")
+    print(f"run_embedding_pipeline_on_file: Total chunks: {len(chunks)}")
+    # type: {type(chunks)}\n {chunks}")
 
     df = None
     if chunks is not None and len(chunks) > 0:
@@ -84,23 +85,8 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
             for chunk, embedding in zip(chunks, normalized_embeddings)
         ]
 
-        #print(f"========================> run_embedding_pipeline: Total records: {len(records)} type: {type(records)}")
-        # Print records in human-readable format
-        # print("\nHuman-readable records:")
-        # for i, record in enumerate(records):
-        #     print(f"\nRecord {i}:")
-        #     print(f"Text chunk: {record['text_chunk'][:100]}...\n")  # First 100 chars
-        #     print(f"Embedding : {type(record['embedding'])}\n - value: {record['embedding']}")
-
         # Create DataFrame from records
-        df = pd.DataFrame(records)
-        #print("=========================> ")
-        # print("Final DataFrame:")
-        # print(df.describe())
-        # print(df.info())
-        # print(df.shape)
-        # print(f"type of embeddings : {type(df['embedding'])}")
-        # print("=========================> End of run_embedding_pipeline")
+        df = pd.DataFrame(records)    
     # else:
     #     print("No chunks to process")
     return df
@@ -156,15 +142,20 @@ def gpt_split_into_sections(content,  stop_words,
     else:
         # Check if recognizable Markdown-style headers exist
         lines = content.splitlines()
-        print(f"===> Lines: {lines}")
+        #print(f"===> Lines: {lines}")
         has_markdown_headers = any(line.startswith("#") for line in lines)
-        print(f"======> Markdown headers found: {has_markdown_headers}")
+        #print(f"======> Markdown headers found: {has_markdown_headers}")
 
         if has_markdown_headers:
             # Handle content with Markdown-style headers
             current_title = None
             current_text = []
+                
             for line in lines:
+                if line.startswith("```"):
+                    #print(f"=====> Markdown code block found: {line}")
+                    # Skip code blocks
+                    continue
                 if line.startswith("#"):
                     print(f"=====> Markdown header found: {line}")
                     # If there's an existing section, save it
@@ -178,6 +169,9 @@ def gpt_split_into_sections(content,  stop_words,
                     current_text = []
                 else:
                     line = preprocess_text(line, stop_words, lemmatizer)
+                    # remove bold and italic markdown
+                    line=line.lstrip("*").strip()
+                    line=line.lstrip("_").strip()
                     current_text.append(line)
 
             # Add the last section
@@ -189,7 +183,7 @@ def gpt_split_into_sections(content,  stop_words,
         else:
             # Handle plain text without headers by splitting into chunks
             content = preprocess_text(content, stop_words, lemmatizer)
-            print("No headers found. Splitting text content into chunks.")
+            #print("No headers found. Splitting text content into chunks.")
             start = 0
             while start < len(content):
                 end = start + chunk_size
@@ -318,14 +312,12 @@ def preprocess_and_split_text(
     # Preprocess the text
     #print(f"Input text: {text[:200]}...")  # Show first 200 chars
     #print(f"Chunk size: {chunk_size}, Overlap: {overlap}")
-    # print(f"Number of stop words: {len(stop_words)}")
-    #print(f"Text: {text[:200]}...")  # Show first 200 chars
+    # print(f"Number of stop words: {len(stop_words)}")    
     # Split content into sections
     sections = gpt_split_into_sections(text, stop_words, lemmatizer, chunk_size, overlap)
     #print_sections(sections)
     chunks = gpt_split_sections_into_chunks(sections, chunk_size , tokenizer)
-    print_chunks(chunks)
-
+    #print_chunks(chunks)
     return chunks
 
 

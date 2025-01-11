@@ -200,7 +200,6 @@ start developing wireshark lua dissector, need set environment properly.
 "Writing Your First Lua Dissector
 understanding basic structure lua dissector key getting started. here's simple example lua dissector hypothetical protocol:
 
-```lua
 -- simple wireshark lua dissector custom protocol
 local my_proto = proto(""myproto"", ""my custom protocol"")
 
@@ -218,8 +217,7 @@ end
 
 -- register dissector specific udp port
 local udp_port = dissectortable.get(""udp.port"")
-udp_port:add(1234, my_proto)
-```","[-6.04083091e-02  6.35365844e-02 -6.04276871e-03  4.60082516e-02
+udp_port:add(1234, my_proto)","[-6.04083091e-02  6.35365844e-02 -6.04276871e-03  4.60082516e-02
   3.15416940e-02 -7.45577924e-03  8.45047757e-02  5.04760537e-03
  -3.54751125e-02  3.98039585e-03  2.04900689e-02  3.72394025e-02
  -5.07293344e-02 -4.35355529e-02 -8.94710496e-02 -1.42843043e-02
@@ -415,9 +413,7 @@ wireshark lua api provides various function class help create dissectors. basic 
 "1. **Proto**
 `proto` class used define new protocol.
 
-```lua
-local my_proto = proto(""myproto"", ""my custom protocol"")
-```","[-8.10868368e-02  9.08596590e-02 -7.87792160e-05  1.98506229e-02
+local my_proto = proto(""myproto"", ""my custom protocol"")","[-8.10868368e-02  9.08596590e-02 -7.87792160e-05  1.98506229e-02
  -2.82853004e-02 -6.44090772e-02 -1.44369267e-02 -1.74269564e-02
   1.23075722e-03 -9.32160008e-04  2.26861611e-02 -2.22635325e-02
  -7.30593642e-03 -2.50443313e-02  5.61186112e-03  7.42959827e-02
@@ -516,7 +512,6 @@ local my_proto = proto(""myproto"", ""my custom protocol"")
 "2. **Dissector**
 `dissector` function define dissect protocol data.
 
-```lua
 function my_proto.dissector(buffer, pinfo, tree)
 pinfo.cols.protocol = my_proto.name
 local length = buffer:len()
@@ -527,8 +522,7 @@ local subtree = tree:add(my_proto, buffer(), ""my custom protocol data"")
 -- add field tree
 subtree:add(buffer(0, 1), ""field 1: "".. buffer(0, 1):uint())
 subtree:add(buffer(1, 2), ""field 2: "".. buffer(1, 2):uint())
-end
-```","[-3.77262682e-02  1.04149655e-01  5.92596717e-02  3.85145433e-02
+end","[-3.77262682e-02  1.04149655e-01  5.92596717e-02  3.85145433e-02
  -3.80362310e-02 -4.29939330e-02 -7.49471337e-02  2.14872099e-02
   2.03214195e-02 -1.47435041e-02 -7.39910034e-03  3.00183296e-02
  -6.32250234e-02 -3.29104103e-02 -2.55470574e-02  4.31037135e-02
@@ -627,9 +621,7 @@ end
 "3. **Tvb**
 `tvb` class used access packet data.
 
-```lua
-local tvb = buffer()
-```","[-5.23785278e-02  4.06020768e-02  1.76960360e-02 -1.16072642e-03
+local tvb = buffer()","[-5.23785278e-02  4.06020768e-02  1.76960360e-02 -1.16072642e-03
   2.69765174e-03  1.27251297e-02 -1.49210840e-02  4.62927902e-03
  -4.47421744e-02  1.00436900e-02  1.01460889e-02 -1.40978023e-02
  -3.34643759e-02 -1.50335860e-02 -2.56183874e-02  2.50162799e-02
@@ -728,9 +720,7 @@ local tvb = buffer()
 "4. **Pinfo**
 `pinfo` class contains information packet.
 
-```lua
-local pinfo = pinfo()
-```","[-3.11825629e-02  3.53342779e-02 -1.87213365e-02  2.04772060e-03
+local pinfo = pinfo()","[-3.11825629e-02  3.53342779e-02 -1.87213365e-02  2.04772060e-03
  -2.85534672e-02  3.19217220e-02  1.08176813e-01 -2.57211812e-02
  -5.22954203e-02  3.68142724e-02 -1.15444213e-02 -3.23178731e-02
  -4.79731336e-02  5.17897643e-02  8.06340948e-03  3.48485447e-02
@@ -829,9 +819,7 @@ local pinfo = pinfo()
 "5. **Tree**
 `tree` class used create display tree.
 
-```lua
-local tree = tree()
-```","[-5.81618249e-02  1.14483461e-01 -4.63367924e-02 -3.86794917e-02
+local tree = tree()","[-5.81618249e-02  1.14483461e-01 -4.63367924e-02 -3.86794917e-02
   6.19436465e-02 -2.29046587e-02  6.54887706e-02 -4.86636013e-02
  -3.96400839e-02  1.56610552e-03 -2.79135294e-02 -6.42204210e-02
  -6.10274673e-02  5.08804508e-02 -1.23578168e-01 -2.68818694e-03
