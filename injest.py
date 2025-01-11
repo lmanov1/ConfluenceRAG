@@ -23,8 +23,8 @@ def load_embed_text_from_directory(directory_path , tokenizer , embedding_model,
     for filename in os.listdir(directory_path):
         if filename.endswith(".txt"):  # Adjust for other formats
             with open(os.path.join(directory_path, filename), 'r', encoding='utf-8') as file:
-                print(f"Processing file: {filename}")
-                embeddings = run_embedding_pipeline(file.read(), embedding_model, tokenizer, chunk_size, overlap)
+                #print(f"Processing file: {filename}")
+                embeddings = run_embedding_pipeline_on_file(file.read(), embedding_model, tokenizer, chunk_size, overlap)
                 if embeddings is not None:
                     dir_embeddings = pd.concat([dir_embeddings, embeddings], ignore_index=True)
 
@@ -33,7 +33,7 @@ def load_embed_text_from_directory(directory_path , tokenizer , embedding_model,
     return dir_embeddings
 
 
-def run_embedding_pipeline(text, embedding_model, tokenizer, chunk_size=500, overlap=50):
+def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=500, overlap=50):
     # Define stop words and lemmatizer
     stop_words = set(stopwords.words("english"))
     lemmatizer = WordNetLemmatizer()
@@ -57,7 +57,7 @@ def run_embedding_pipeline(text, embedding_model, tokenizer, chunk_size=500, ove
         except Exception as e:
             print(f"An error occurred: {e}")
 
-        print(f"chunks len {len(chunks)}    type {type(chunks)}; \nembeddings: len {len(embeddings)}    type {type(embeddings)}")
+        #print(f"chunks len {len(chunks)}    type {type(chunks)}; \nembeddings: len {len(embeddings)}    type {type(embeddings)}")
         #Check if embeddings are still tensors
         if isinstance(embeddings, list) :
             if isinstance(embeddings[0], torch.Tensor):
@@ -80,23 +80,23 @@ def run_embedding_pipeline(text, embedding_model, tokenizer, chunk_size=500, ove
             for chunk, embedding in zip(chunks, normalized_embeddings)
         ]
 
-        print(f"========================> run_embedding_pipeline: Total records: {len(records)} type: {type(records)}")
+        #print(f"========================> run_embedding_pipeline: Total records: {len(records)} type: {type(records)}")
         # Print records in human-readable format
-        print("\nHuman-readable records:")
-        for i, record in enumerate(records):
-            print(f"\nRecord {i}:")
-            print(f"Text chunk: {record['text_chunk'][:100]}...\n")  # First 100 chars
-            print(f"Embedding : {type(record['embedding'])}\n - value: {record['embedding']}")
+        # print("\nHuman-readable records:")
+        # for i, record in enumerate(records):
+        #     print(f"\nRecord {i}:")
+        #     print(f"Text chunk: {record['text_chunk'][:100]}...\n")  # First 100 chars
+        #     print(f"Embedding : {type(record['embedding'])}\n - value: {record['embedding']}")
         
-        print("=========================> ")
         # Create DataFrame from records
         df = pd.DataFrame(records)
-        print("Final DataFrame:")        
-        print(df.describe())    
-        print(df.info())
-        print(df.shape)
-        print(f"type of embeddings : {type(df['embedding'])}")
-        print("=========================> End of run_embedding_pipeline")
+        #print("=========================> ")        
+        # print("Final DataFrame:")        
+        # print(df.describe())    
+        # print(df.info())
+        # print(df.shape)
+        # print(f"type of embeddings : {type(df['embedding'])}")
+        # print("=========================> End of run_embedding_pipeline")
     # else:
     #     print("No chunks to process")
     return df
@@ -187,7 +187,8 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
                     chunk = content[start:end + overlap_len]
 
                 sections.append({
-                    "subtitle": "Plain Text Chunk",
+                    #"subtitle": "Plain Text Chunk",
+                    "subtitle": "",
                     "text": chunk.strip()
                 })
                 start += chunk_size  # Move to the next chunk
@@ -315,7 +316,7 @@ def preprocess_and_split_text(
         List[str]: A list of text chunks.
     """
     # Preprocess the text
-    print(f"Input text: {text[:200]}...")  # Show first 200 chars
+    #print(f"Input text: {text[:200]}...")  # Show first 200 chars
     # print(f"Chunk size: {chunk_size}, Overlap: {overlap}")
     # print(f"Number of stop words: {len(stop_words)}")
     cleaned_text = preprocess_text(text, stop_words, lemmatizer)
@@ -324,7 +325,7 @@ def preprocess_and_split_text(
     sections = gpt_split_into_sections(cleaned_text)
     #print_sections(sections)
     chunks = gpt_split_sections_into_chunks(sections, chunk_size , tokenizer)
-    print_chunks(chunks)
+    #print_chunks(chunks)
 
     return chunks
 
