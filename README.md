@@ -1,10 +1,10 @@
 
-'''
+```bash
 cd /path/to/your/project
 python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install -r requirements.txt
-'''
+```
 
 ## 1. Text Ingestion Pipeline     
 

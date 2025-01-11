@@ -10,8 +10,8 @@ pdf2image
 python-dotenv
 python-environ
 
-faiss-cpu
-faiss-gpu
+#faiss-cpu
+#faiss-gpu
 gradio
 sentence_transformers
 transformers

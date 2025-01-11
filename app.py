@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from injest import  load_embed_text_from_directory , run_embedding_pipeline_on_file , print_cuda_memory
 from tqdm import tqdm
+import time
 # Retrieve the context window size (max tokens)
 def get_context_window_size(tokenizer, model):
     return model.config.max_position_embeddings if hasattr(model.config, "max_position_embeddings") else 2048
@@ -45,13 +46,11 @@ def find_similar_chunks(query, embeddings_df, max_tokens , model):
     """
     query_embeddings_df = run_embedding_pipeline_on_file(query, embedding_model, tokenizer,
                                               chunk_size=500, overlap=50)
-
     if query_embeddings_df is None:
         print(f"No embeddings generated for the query text: {query}")
         return ""
     else:
        # Convert 'embedding' column from Series to NumPy array in-place (if needed)
-
         query_embeddings_df['embedding'] = query_embeddings_df['embedding'].apply(lambda x: x if isinstance(x, np.ndarray) else np.array(x))
         embeddings_df['embedding'] = embeddings_df['embedding'].apply(lambda x: x if isinstance(x, np.ndarray) else np.array(x))      
 
@@ -90,8 +89,8 @@ def find_similar_chunks(query, embeddings_df, max_tokens , model):
     )
 
     # Display the result
-    #print("Generated Context:")
-    #print(f"\"{combined_context}\"\n")
+    print("=============================\nGenerated Context:")
+    print(f"\"{combined_context}\"\n=============================")
     return combined_context
 
 
@@ -118,28 +117,33 @@ def process_query(query, embedding_model, tokenizer, model, embeddings_df ):
     # Find the top 3 most similar chunks and construct context
     context = find_similar_chunks(query, embeddings_df, max_tokens_budget , model)
 
-    # Pass the context to the generative model to generate an answer
-    print("Generating answer...")
-    #inputs =  tokenizer(context, return_tensors="pt", truncation=True, padding=True)
-    inputs =  tokenizer(context, return_tensors="pt", truncation=True)
+    # Pass the context to the generative model to generate an answer            
+    #print(f"Tokenizing {context}...")
+    inputs =  tokenizer(context, return_tensors="pt", truncation=True, padding=True)
+    #print(f"Getting attention mask for {context}...")
     attention_mask = inputs["attention_mask"]
+    #print(f"Attention mask is {attention_mask}...")
    
     input_ids = inputs.input_ids
+    #print(f"input_ids mask is {input_ids}...")
     # Generate an answer using the model
-    # If both `max_new_tokens` (=70) and `max_length`(=131072) is set, `max_new_tokens` will take precedence
+    # If both `max_new_tokens` (=70) and `max_length`(=131072) is set, `max_new_tokens` will take precedence    
+    start_time = time.time()
+    print("Starting answer generation...")
     output_ids = model.generate(input_ids.to(model.device), 
-    num_return_sequences=1, 
-    #max_length=max_tokens_budget,    # total including input and output
-    attention_mask=attention_mask, 
-    max_new_tokens=80,        #  max length of generated answer
-    num_beams=3,          # Fewer beams for faster generation
-    # do_samle = True,      # Enable sampling
-    # temperature=0.7,      # Adjust temperature
-    early_stopping=True)   # Enable early stopping
-    
+        num_return_sequences=1, 
+        attention_mask=attention_mask, 
+        max_new_tokens=150,        
+        num_beams=3,          
+        early_stopping=True)   
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Generation completed in {elapsed_time:.2f} seconds")
+
+    #print("Decoding answer output_ids..{output_ids}")
     # Decode the generated answer
     generated_answer = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-
+    print(f"Generated answer: {generated_answer}")
     # Extract the answer after the "Answer:" part
     generated_answer = generated_answer.split("Answer:")[-1].strip()
     return generated_answer
@@ -152,8 +156,9 @@ if __name__ == '__main__':
     load_dotenv(find_dotenv())
 
     print_cuda_memory("cuda")
-    #device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "auto"
+    #device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    #device = "auto"
+    device = "cpu"
 
     #qa_model_name = "tiiuae/falcon-7b-instruct"  # too heavy to load in memory without offload to disk
     #qa_model_name = "ibm-granite/granite-3.0-2b-instruct"
@@ -168,6 +173,8 @@ if __name__ == '__main__':
     #qa_model_name = "meta-llama/Llama-3.2-3B"  # LLM model
     qa_model_name = "ibm-granite/granite-3.1-2b-instruct"
     tokenizer = AutoTokenizer.from_pretrained(qa_model_name , device_map=device)
+    # Set the pad_token to be the same as the eos_token
+    tokenizer.pad_token = tokenizer.eos_token
 
     qa_model = AutoModelForCausalLM.from_pretrained(qa_model_name,
     #low_cpu_mem_usage=True,
@@ -177,16 +184,9 @@ if __name__ == '__main__':
     #torch_dtype=torch.float16,
     )
     print(f"Loaded LLM model: {qa_model_name}")
-
-    system_prompt = "You are a helpful assistant. Answer the questions clearly and concisely. Be short but comprehensive. If answer is not found - say so."
-
+    #system_prompt = "You are a helpful assistant. Answer the questions clearly and concisely. Be short but comprehensive. If answer is not found - say so."
     qa_model.eval()
-
-    # Set the pad_token to be the same as the eos_token
-    tokenizer.pad_token = tokenizer.eos_token
-    # OR Add a custom pad token
-    # tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-
+   
     # ==> Open From here ==============================
     # spaces  = {CONFLUENCE_SPACE_KEY: CONFLUENCE_SPACE_NAME}
     # print(f"spaces: {spaces}")
@@ -223,18 +223,24 @@ if __name__ == '__main__':
         # print(embeddings_df.describe())
     else:
         # Load text chunks from directory
-        print("Going to embed text from ./OnyxData/FE_Grouprelevant directory...")
-        embeddings_df = load_embed_text_from_directory("./OnyxData/FE_Group", tokenizer, embedding_model)
+        print("Going to embed text from ./wireshark_dissectors_tutorial...")
+        embeddings_df = load_embed_text_from_directory("./wireshark_dissectors_tutorial", tokenizer, embedding_model)
+
+        # print("Going to embed text from ./OnyxData/FE_Grouprelevant directory...")
+        # embeddings_df = load_embed_text_from_directory("./OnyxData/FE_Group", tokenizer, embedding_model)
+
+        
         # Save to CSV file
         # Remove output file if it exists
         output_path = embeds_file_path
-        if os.path.exists(output_path):
-            os.remove(output_path)
-        print(f"Saving {len(embeddings_df)} embeddings to {output_path}...")
-        # Save with progress bar
-        tqdm.pandas()
-        embeddings_df.to_csv(output_path, index=False, chunksize=1000)
-        print(f"Embeddings saved to {embeddings_df}")
+        if len(embeddings_df) > 0:       
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            print(f"Saving {len(embeddings_df)} embeddings to {output_path}...")
+            # Save with progress bar
+            tqdm.pandas()
+            embeddings_df.to_csv(output_path, index=False, chunksize=1000)
+            print(f"Embeddings saved to {embeddings_df}")
 
     print(f"=============Embeddings len after preprocessing: {embeddings_df.shape} , embeddings type: {(embeddings_df.info())}")
     # for i, embedding in enumerate(embeddings):

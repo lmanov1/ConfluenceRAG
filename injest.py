@@ -17,16 +17,18 @@ nltk.download("wordnet")
 nltk.download('punkt')
 from config import embeds_file_path
 def load_embed_text_from_directory(directory_path , tokenizer , embedding_model, chunk_size=500, overlap=50):
-
+    print(f"!!!!!!!!!!!!!!!!! herfe in load_embed_text_from_directory {directory_path}!!!!")
     # Initialize an empty DataFrame
     dir_embeddings = pd.DataFrame(columns=['text_chunk', 'embedding'])
     for filename in os.listdir(directory_path):
-        if filename.endswith(".txt"):  # Adjust for other formats
-            with open(os.path.join(directory_path, filename), 'r', encoding='utf-8') as file:
-                #print(f"Processing file: {filename}")
-                embeddings = run_embedding_pipeline_on_file(file.read(), embedding_model, tokenizer, chunk_size, overlap)
-                if embeddings is not None:
-                    dir_embeddings = pd.concat([dir_embeddings, embeddings], ignore_index=True)
+        print(f"Processing file: {filename}")
+        #if filename.endswith(".txt"):  # Adjust for other formats
+        with open(os.path.join(directory_path, filename), 'r', encoding='utf-8') as file:
+            text = str(file.read())
+            print(f"---------Processing file: {filename}, {text} -------------------")
+            embeddings = run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size, overlap)
+            if embeddings is not None:
+                dir_embeddings = pd.concat([dir_embeddings, embeddings], ignore_index=True)
 
     print(f"==> load_text_from_directory: Total embeddings: {len(dir_embeddings)} type: {type(dir_embeddings)}")
     # , len of first text: {len(dir_embeddings[0])} , first text {dir_embeddings[0]}")
@@ -38,6 +40,7 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
     stop_words = set(stopwords.words("english"))
     lemmatizer = WordNetLemmatizer()
     # Preprocess and split the text into tokenized chunks
+    #print(f"Calling preprocess_and_split_text   text: {text[:200]}...")  # Show first 200 chars
     chunks = preprocess_and_split_text(
         text=text,
         tokenizer=tokenizer,
@@ -46,12 +49,13 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
         chunk_size=chunk_size,
         overlap=overlap
     )
+    print(f"run_embedding_pipeline_on_file: Total chunks: {len(chunks)} type: {type(chunks)}")
 
     df = None
     if chunks is not None and len(chunks) > 0:
         try:
             # Enable debug information for the encode process
-            embeddings = embedding_model.encode(chunks, convert_to_tensor=False, convert_to_numpy= True, show_progress_bar=True, output_value='token_embeddings')                
+            embeddings = embedding_model.encode(chunks, convert_to_tensor=False, convert_to_numpy= True, show_progress_bar=True, output_value='token_embeddings')
         except KeyError as e:
             print(f"KeyError: {e}")
         except Exception as e:
@@ -63,14 +67,14 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
             if isinstance(embeddings[0], torch.Tensor):
                 embeddings = [e.cpu().numpy() for e in embeddings]
         else:
-            if isinstance(embeddings, torch.Tensor):                    
+            if isinstance(embeddings, torch.Tensor):
                 embeddings = embeddings.cpu().numpy()
             else:
                 embeddings = np.array(embeddings)
 
         # Ensure embeddings are 2D
         embeddings = np.vstack(embeddings)
-        normalized_embeddings = [normalize(e.reshape(1, -1)).flatten() for e in embeddings]           
+        normalized_embeddings = [normalize(e.reshape(1, -1)).flatten() for e in embeddings]
         # Create a list of dictionaries with text chunks and embeddings
         records = [
             {
@@ -87,12 +91,12 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
         #     print(f"\nRecord {i}:")
         #     print(f"Text chunk: {record['text_chunk'][:100]}...\n")  # First 100 chars
         #     print(f"Embedding : {type(record['embedding'])}\n - value: {record['embedding']}")
-        
+
         # Create DataFrame from records
         df = pd.DataFrame(records)
-        #print("=========================> ")        
-        # print("Final DataFrame:")        
-        # print(df.describe())    
+        #print("=========================> ")
+        # print("Final DataFrame:")
+        # print(df.describe())
         # print(df.info())
         # print(df.shape)
         # print(f"type of embeddings : {type(df['embedding'])}")
@@ -102,7 +106,8 @@ def run_embedding_pipeline_on_file(text, embedding_model, tokenizer, chunk_size=
     return df
 
 
-def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
+def gpt_split_into_sections(content,  stop_words,
+        lemmatizer, chunk_size=500, overlap_len=50 ):
     """
     Splits the document into sections. If no recognizable headers or tags are present,
     the content is split into chunks of a given size with overlap.
@@ -123,6 +128,7 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
     html_headers = html_header_pattern.findall(content)
 
     if html_headers:
+        print(f"HTML headers found: {html_headers}")
         # Handle content with HTML headers
         current_title = None
         current_text = []
@@ -138,6 +144,7 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
                 current_title = html_header_pattern.search(line).group(1).strip()
                 current_text = []
             else:
+                line = preprocess_text(line, stop_words, lemmatizer)
                 current_text.append(line)
 
         # Add the last section
@@ -149,7 +156,9 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
     else:
         # Check if recognizable Markdown-style headers exist
         lines = content.splitlines()
+        print(f"===> Lines: {lines}")
         has_markdown_headers = any(line.startswith("#") for line in lines)
+        print(f"======> Markdown headers found: {has_markdown_headers}")
 
         if has_markdown_headers:
             # Handle content with Markdown-style headers
@@ -157,6 +166,7 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
             current_text = []
             for line in lines:
                 if line.startswith("#"):
+                    print(f"=====> Markdown header found: {line}")
                     # If there's an existing section, save it
                     if current_title or current_text:
                         sections.append({
@@ -167,6 +177,7 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
                     current_title = line.lstrip("#").strip()  # Extract the title
                     current_text = []
                 else:
+                    line = preprocess_text(line, stop_words, lemmatizer)
                     current_text.append(line)
 
             # Add the last section
@@ -177,6 +188,8 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
                 })
         else:
             # Handle plain text without headers by splitting into chunks
+            content = preprocess_text(content, stop_words, lemmatizer)
+            print("No headers found. Splitting text content into chunks.")
             start = 0
             while start < len(content):
                 end = start + chunk_size
@@ -195,20 +208,6 @@ def gpt_split_into_sections(content, chunk_size=500, overlap_len=50):
 
     return sections
 
-def gpt_tokenize_text(text, tokenizer):
-    """
-    Tokenizes text using a pre-initialized Hugging Face tokenizer.
-    Parameters:
-        text (str): The input text to be tokenized.
-        tokenizer: A pre-initialized Hugging Face tokenizer object.
-
-    Returns:
-        tuple: A tuple containing the tokenized list and the token count.
-    """
-    tokens = tokenizer.tokenize(text)
-    token_ids = tokenizer.convert_tokens_to_ids(tokens)
-    return token_ids, len(token_ids)
-
 def gpt_split_sections_into_chunks(sections, max_tokens , tokenizer):
     """Splits sections into chunks based on a token budget.
 	Parameters:
@@ -224,6 +223,7 @@ def gpt_split_sections_into_chunks(sections, max_tokens , tokenizer):
     chunks = []
 
     for section in sections:
+        #print(f"Section:\n======Subtitle:  {section['subtitle']} \n======text:   {section['text']}")
         title = section["subtitle"]
         content = section["text"]
 
@@ -317,15 +317,14 @@ def preprocess_and_split_text(
     """
     # Preprocess the text
     #print(f"Input text: {text[:200]}...")  # Show first 200 chars
-    # print(f"Chunk size: {chunk_size}, Overlap: {overlap}")
+    #print(f"Chunk size: {chunk_size}, Overlap: {overlap}")
     # print(f"Number of stop words: {len(stop_words)}")
-    cleaned_text = preprocess_text(text, stop_words, lemmatizer)
-    #print(f"Cleaned text: {cleaned_text[:200]}...")  # Show first 200 chars
+    #print(f"Text: {text[:200]}...")  # Show first 200 chars
     # Split content into sections
-    sections = gpt_split_into_sections(cleaned_text)
+    sections = gpt_split_into_sections(text, stop_words, lemmatizer, chunk_size, overlap)
     #print_sections(sections)
     chunks = gpt_split_sections_into_chunks(sections, chunk_size , tokenizer)
-    #print_chunks(chunks)
+    print_chunks(chunks)
 
     return chunks
 
@@ -342,105 +341,3 @@ def print_cuda_memory(device):
         total_gb = total / (1024 ** 3)
         print(f"Free CUDA memory: {free_gb:.2f} GB")
         print(f"Total CUDA memory: {total_gb:.2f} GB")
-# =======================================================
-
-# max_length = 512
-# def preprocess_and_sentence_split(
-#     text: str,
-#     tokenizer,
-#     stop_words: set ,
-#     lemmatizer
-# ) -> List[List[int]]:
-#     """
-#     Preprocesses text, splits it into sentences, and tokenizes each sentence.
-#     Args:
-#         text (str): The input text to preprocess.
-#         tokenizer: A tokenizer that provides `encode`.
-#         stop_words (set): A set of stop words to filter.
-#         lemmatizer: A lemmatizer to normalize words.
-
-#     Returns:
-#         List[List[int]]: A list of tokenized sentences.
-#     """
-#     # Preprocess the text
-#     cleaned_text = preprocess_text(text, stop_words, lemmatizer)
-#     # Split into sentences
-#     sentences = sent_tokenize(cleaned_text)
-#     # Tokenize each sentence
-#     tokenized_sentences = [
-#         tokenizer.encode(sentence, return_tensors="pt", padding=False, truncation=False, max_length = max_length)[0].tolist()
-#         for sentence in sentences
-#     ]
-
-#     return tokenized_sentences
-
-# # sliding_window_chunks
-# def preprocess_split_text(text, tokenizer, max_length=chunk_size, overlap=20):
-
-#     cleaned_text= preprocess_text(text)
-#     print(f"cleaned_text : ", cleaned_text)
-
-#     tokenized = tokenizer.encode(cleaned_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-#     # Remove special tokens like [CLS] and [SEP]
-#     tokens_cleaned = [token for token in tokenized if token != tokenizer.cls_token_id and token != tokenizer.sep_token_id]
-#     print(f"preprocess_split_text: Cleaned Tokens: {len(tokens_cleaned)}  type: {type(tokens_cleaned)}")
-#     print(f"preprocess_split_text: len of first token cleaned: {len(tokens_cleaned[0])} , first token cleaned {tokens_cleaned[0]}")
-#     # Split the text into chunks
-#     chunks = []
-#     #chunks.extend([text[i:i+chunk_size] for i in range(0, len(text), max_length)])
-#     # for i in range(0, len(tokenized), max_length - overlap):
-#     #     chunk = tokenized[i:i + max_length]
-#     #     chunks.append(chunk)
-#     # Chunking the tokens
-#     max_tokens=20
-#     chunks = [tokens_cleaned[i:i + max_tokens] for i in range(0, len(tokens_cleaned), max_tokens)]
-#     print(f"preprocess_split_text: Total chunks: {len(chunks)} type: {type(chunks)} , len of first chunk: {len(chunks[0])} , first chunk {chunks[0]}")
-#     if len(chunks) > 1:
-#         print(f"preprocess_split_text: len of second chunk: {len(chunks[0])} , second chunk {chunks[1]}")
-#     return chunks
-
-# def preprocess_text(text):
-#     # Convert to lowercase
-#     text = text.lower()
-#     # Remove URLs
-#     text = re.sub(r'http\S+', '', text)
-#     # Remove special characters or HTML tags
-#     text = re.sub(r'<.*?>', '', text)
-#     #  Remove non-alphabetic characters (optional, depending on the task)
-#     text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
-#     # Remove extra spaces
-#     text = ' '.join(text.split())
-#     # Tokenize and remove stop words
-#     words = text.split()
-#     words = [word for word in words if word not in stop_words]
-#     # Lemmatize words
-#     words = [lemmatizer.lemmatize(word) for word in words]
-#     processed_text = " ".join(words)
-#     #print(f" Processed piece: {processed_text}")
-#     return processed_tex
-
-# # Example usage
-# text = "Hello World! Running text \n\n\/ {} preprocessing is essential for NLP tasks."
-# cleaned_text = preprocess_text(text)
-# print(cleaned_text)  # Output: "hello world running text preprocessing essential nlp task"
-
-
-# from multiprocessing import Pool, cpu_count
-
-# # Helper to pass multiple arguments to the function
-# def preprocess_wrapper(args):
-#     return preprocess_split_text(*args)
-
-# # Function to preprocess chunks in parallel
-# def preprocess_chunks_in_parallel(chunks, tokenizer , num_processes=None):
-#     preprocessed_chunks = []
-#     # Use all available CPUs if num_processes is not specified
-#     if num_processes is None:
-#         num_processes = cpu_count()
-#     # Pair each chunk with the tokenizer
-#     tasks = [(chunk, tokenizer) for chunk in chunks]
-
-#     with Pool(processes=num_processes) as pool:
-#         preprocessed_chunks.extend(pool.map(preprocess_wrapper, tasks))
-
-#     return preprocessed_chunks
