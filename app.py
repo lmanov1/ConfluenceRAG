@@ -6,7 +6,6 @@ import pickle
 from  confluence_reader import get_and_save_space
 from config import (CONFLUENCE_SPACE_NAME, CONFLUENCE_SPACE_KEY)
 from config import embeds_file_path
-import faiss
 import gradio as gr
 from sentence_transformers import SentenceTransformer , models
 from transformers import  AutoModelForCausalLM
